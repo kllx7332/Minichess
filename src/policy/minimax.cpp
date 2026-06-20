@@ -8,16 +8,10 @@
 #include "minimax.hpp"
 
 
-/*============================================================
- * MiniMax / Alpha-Beta / PVS / Quiescence
- *
- * The public algorithm name remains "minimax" because the CLI defaults to
- * it, but the implementation is a stronger fail-soft negamax:
- *   - alpha-beta pruning
- *   - principal variation search (PVS)
- *   - tactical quiescence at the horizon
- *   - simple capture/promotion move ordering
- *============================================================*/
+// MiniMax / Alpha-Beta / PVS / Quiescence
+// CLI name "minimax" kept for compatibility; implementation is fail-soft negamax:
+//   alpha-beta pruning, principal variation search (PVS),
+//   tactical quiescence at the horizon, capture/promotion move ordering.
 
 struct ScoredMove {
     Move move;
@@ -43,7 +37,7 @@ struct TTEntry {
 static std::array<TTEntry, TT_SIZE> g_tt;
 static Move g_killers[MAX_PLY_LOCAL][2];
 static bool g_killer_used[MAX_PLY_LOCAL][2] = {};
-static int g_history_heur[2][HIST_SQ][HIST_SQ] = {};
+static int g_history[2][HIST_SQ][HIST_SQ] = {};
 
 static void clear_search_tables(){
     for(auto& entry : g_tt){
@@ -57,7 +51,7 @@ static void clear_search_tables(){
     for(int pl = 0; pl < 2; pl++){
         for(int a = 0; a < HIST_SQ; a++){
             for(int b = 0; b < HIST_SQ; b++){
-                g_history_heur[pl][a][b] = 0;
+                g_history[pl][a][b] = 0;
             }
         }
     }
@@ -228,7 +222,7 @@ static int move_order_score(const State* state, const Move& move){
         }
     }
 
-    /* Light development bias for quiet root ordering. */
+    // light development bias for quiet root ordering
     if(tr >= 0 && tr < BOARD_H && tc >= 0 && tc < BOARD_W){
         int center_dist = std::abs(tr - (BOARD_H / 2)) + std::abs(tc - (BOARD_W / 2));
         score += 12 - center_dist;
@@ -261,7 +255,7 @@ static std::vector<Move> ordered_moves(State* state, int ply = 0, bool captures_
             int from = sq_index(move.first);
             int to = sq_index(move.second);
             if(from >= 0 && from < HIST_SQ && to >= 0 && to < HIST_SQ){
-                score += g_history_heur[state->player][from][to];
+                score += g_history[state->player][from][to];
             }
         }
         scored.push_back({move, score});
@@ -422,7 +416,7 @@ static int negamax(
                 int from = sq_index(action.first);
                 int to = sq_index(action.second);
                 if(from >= 0 && from < HIST_SQ && to >= 0 && to < HIST_SQ){
-                    g_history_heur[state->player][from][to] += depth * depth;
+                    g_history[state->player][from][to] += depth * depth;
                 }
             }
             tt_store(h, alpha, depth, TT_LOWER, action);
@@ -530,9 +524,7 @@ static int quiescence(
 }
 
 
-/*============================================================
- * MiniMax public compatibility wrapper
- *============================================================*/
+// MiniMax public compatibility wrapper
 int MiniMax::eval_ctx(
     State *state,
     int depth,
@@ -545,9 +537,7 @@ int MiniMax::eval_ctx(
 }
 
 
-/*============================================================
- * MiniMax search
- *============================================================*/
+// MiniMax search
 SearchResult MiniMax::search(
     State *state,
     int depth,
@@ -665,9 +655,7 @@ SearchResult MiniMax::search(
 }
 
 
-/*============================================================
- * MiniMax default_params / param_defs
- *============================================================*/
+// MiniMax default_params / param_defs
 ParamMap MiniMax::default_params(){
     return {
         {"UseKPEval", "true"},
