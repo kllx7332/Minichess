@@ -290,6 +290,7 @@ static int quiescence(
 static int negamax(
     State* state,
     int depth,
+    // Alpha-beta window carried through the recursive negamax search.
     int alpha,
     int beta,
     GameHistory& history,
@@ -341,6 +342,8 @@ static int negamax(
 
     if(depth <= 0){
         if(p.use_quiescence){
+            // Quiescence search entry: when normal depth is exhausted, extend
+            // only tactical captures/promotions before calling the evaluator.
             return quiescence(
                 state, alpha, beta, history, ply, ctx, p, p.quiescence_depth
             );
@@ -362,7 +365,15 @@ static int negamax(
         bool same = next->same_player_as_parent();
 
         int score;
+        // PVS implementation:
+        // The first ordered move is searched with the full alpha-beta window.
+        // Later moves are searched with a null window [alpha, alpha + 1].
         if(!p.use_pvs || first_child){
+            // PVS full-window search: the first ordered move is treated as the
+            // principal variation candidate, so it gets the normal alpha-beta
+            // window to obtain an exact score.
+            // Alpha-beta window setup for the child search. When alpha-beta is
+            // disabled, use the full score range so no pruning can happen.
             int child_alpha = p.use_alpha_beta ? alpha : M_MAX;
             int child_beta = p.use_alpha_beta ? beta : P_MAX;
             int raw = same
@@ -376,16 +387,22 @@ static int negamax(
             if(quiet && !killer && move_index >= 3 && depth >= 3){
                 reduction = std::min(depth - 1, std::max(1, depth / 3));
             }
+            // PVS null-window search: for non-first moves, test only whether
+            // the move can beat alpha. Most bad moves fail here cheaply.
             int raw = same
                 ? negamax(next, depth - 1 - reduction, alpha, alpha + 1, history, ply + 1, ctx, p)
                 : negamax(next, depth - 1 - reduction, -alpha - 1, -alpha, history, ply + 1, ctx, p);
             score = same ? raw : -raw;
             if(!ctx.stop && reduction > 0 && score > alpha){
+                // LMR verification before the PVS full re-search: if a reduced
+                // null-window search looks promising, retry at unreduced depth.
                 raw = same
                     ? negamax(next, depth - 1, alpha, alpha + 1, history, ply + 1, ctx, p)
                     : negamax(next, depth - 1, -alpha - 1, -alpha, history, ply + 1, ctx, p);
                 score = same ? raw : -raw;
             }
+            // PVS re-search: if the null-window result can improve alpha,
+            // re-search with a full window to get the exact score.
             if(!ctx.stop && score > alpha && score < beta){
                 raw = same
                     ? negamax(next, depth - 1, score, beta, history, ply + 1, ctx, p)
@@ -407,9 +424,13 @@ static int negamax(
             best_score = score;
             best_move = action;
         }
+        // Alpha update: after each child, raise alpha to the best score found
+        // so far for the current side.
         if(score > alpha){
             alpha = score;
         }
+        // Alpha-beta pruning: once alpha reaches beta, the opponent already has
+        // a better alternative, so the remaining sibling moves can be skipped.
         if(p.use_alpha_beta && alpha >= beta){
             if(!is_tactical_move(state, action)){
                 killer_store(ply, action);
@@ -438,6 +459,10 @@ static int negamax(
     return best_score;
 }
 
+// Quiescence search:
+// Evaluates the quiet standing score first, then searches only tactical moves
+// selected by ordered_moves(..., captures_only=true). This prevents evaluating
+// a leaf position in the middle of an obvious capture or promotion sequence.
 static int quiescence(
     State* state,
     int alpha,
@@ -596,6 +621,7 @@ SearchResult MiniMax::search(
         int raw;
         int score;
         if(!p.use_pvs || move_index == 0){
+            // Root PVS full-window search for the first ordered root move.
             int child_alpha = p.use_alpha_beta ? alpha : M_MAX;
             int child_beta = p.use_alpha_beta ? beta : P_MAX;
             raw = same
@@ -603,11 +629,14 @@ SearchResult MiniMax::search(
                 : negamax(next, depth - 1, -child_beta, -child_alpha, history, 1, ctx, p);
             score = same ? raw : -raw;
         }else{
+            // Root PVS null-window search for later root moves.
             raw = same
                 ? negamax(next, depth - 1, alpha, alpha + 1, history, 1, ctx, p)
                 : negamax(next, depth - 1, -alpha - 1, -alpha, history, 1, ctx, p);
             score = same ? raw : -raw;
             if(!ctx.stop && score > alpha && score < beta){
+                // Root PVS re-search: promising null-window result gets a
+                // full-window search to recover the exact score.
                 raw = same
                     ? negamax(next, depth - 1, score, beta, history, 1, ctx, p)
                     : negamax(next, depth - 1, -beta, -score, history, 1, ctx, p);
