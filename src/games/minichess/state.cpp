@@ -9,16 +9,22 @@
 #include "../../policy/game_history.hpp"
 
 
-// KP (King-Piece) Evaluation tables
-// Always compiled; toggled at runtime via use_kp_eval param.
+// Evaluation strategy:
+// - material is the base score
+// - square tables are only a small positional hint
+// - king pressure, mobility, and forcing attacking chances are weighted higher
+// This keeps the engine improving threats instead of drifting into repeated
+// safe moves against defensive opponents.
 
-// KP material in centipawns. PST/tactical bonuses are secondary to material.
+// Centipawn material scale. Tactical and positional terms stay below material.
 static const int kp_material[7] = {0, 100, 500, 320, 330, 900, 20000};
 
-// Material-only (simple scale)
+// Small fallback scale for the simple evaluator.
 static const int simple_material[7] = {0, 1, 5, 3, 3, 9, 100};
 
-// Piece-Square Tables (white perspective, mirror for black)
+// Base piece-square hints from White's perspective, mirrored for Black.
+// These are softened in eval_side_kp so active attacks can outweigh passive
+// square preference.
 static const int pst[6][BOARD_H][BOARD_W] = {
     // Pawn
     {{ 0,  0,  0,  0,  0}, {50, 50, 50, 50, 50}, {10, 15, 20, 15, 10},
@@ -41,7 +47,11 @@ static const int pst[6][BOARD_H][BOARD_W] = {
 };
 
 // king tropism weights — tuned for an attacking style
-static const int tropism_w[7] = {0, 10, 18, 24, 20, 32, 0};
+static const int tropism_w[7] = {0, 10, 19, 25, 21, 34, 0};
+
+static int soft_square_bonus(int piece, int row, int col){
+    return (pst[piece - 1][row][col] * 2) / 3;
+}
 
 static int king_tropism(
     int piece_type,
@@ -144,7 +154,7 @@ static int king_pressure_bonus(const Board& board, int attacker, int enemy_kr, i
             }
             int dist = std::max(std::abs(r - enemy_kr), std::abs(c - enemy_kc));
             if(dist <= 4){
-                static const int chase_w[7] = {0, 10, 24, 30, 26, 40, 0};
+                static const int chase_w[7] = {0, 10, 25, 32, 27, 43, 0};
                 bonus += chase_w[piece] * (5 - dist);
             }
         }
@@ -160,11 +170,11 @@ static int king_pressure_bonus(const Board& board, int attacker, int enemy_kr, i
             int tr = enemy_kr + dr;
             int tc = enemy_kc + dc;
             if(tr < 0 || tr >= BOARD_H || tc < 0 || tc >= BOARD_W){
-                bonus += 16;
+                bonus += 18;
                 continue;
             }
             if(board.board[attacker][tr][tc]){
-                bonus += 24;
+                bonus += 26;
                 controlled_squares++;
                 continue;
             }
@@ -179,7 +189,7 @@ static int king_pressure_bonus(const Board& board, int attacker, int enemy_kr, i
                 }
             }
             if(controlled){
-                bonus += 20;
+                bonus += 22;
                 controlled_squares++;
             }else if(!board.board[1 - attacker][tr][tc]){
                 escape_squares++;
@@ -187,8 +197,8 @@ static int king_pressure_bonus(const Board& board, int attacker, int enemy_kr, i
         }
     }
 
-    bonus += controlled_squares * 18;
-    bonus -= escape_squares * 8;
+    bonus += controlled_squares * 20;
+    bonus -= escape_squares * 7;
     return bonus;
 }
 
@@ -216,7 +226,7 @@ static bool is_endgame_pos(const Board& board){
     return heavy <= 1;
 }
 
-static bool is_passed_pawn(
+static bool pawn_is_passed(
     const char enemy_board[BOARD_H][BOARD_W],
     int owner,
     int r,
@@ -234,12 +244,12 @@ static bool is_passed_pawn(
     return true;
 }
 
-static int passed_pawn_bonus(int owner, int r){
+static int pawn_advance_bonus(int owner, int r){
     int rows_left = owner == 0 ? r : (BOARD_H - 1 - r);
     return 22 + (BOARD_H - rows_left) * 17;
 }
 
-static int pawn_structure_bonus(const Board& board, int perspective_player){
+static int pawn_formation_bonus(const Board& board, int perspective_player){
     int bonus = 0;
     for(int pl = 0; pl < 2; pl++){
         int sign = (pl == perspective_player) ? 1 : -1;
@@ -268,7 +278,7 @@ static int pawn_structure_bonus(const Board& board, int perspective_player){
     return bonus;
 }
 
-static int rook_on_seventh_bonus(const Board& board, int perspective_player){
+static int rook_rank7_bonus(const Board& board, int perspective_player){
     int bonus = 0;
     for(int pl = 0; pl < 2; pl++){
         int sign = (pl == perspective_player) ? 1 : -1;
@@ -282,7 +292,7 @@ static int rook_on_seventh_bonus(const Board& board, int perspective_player){
     return bonus;
 }
 
-static int score_side(
+static int eval_side_kp(
     const char owning_board[BOARD_H][BOARD_W],
     const char enemy_board[BOARD_H][BOARD_W],
     int owner,
@@ -302,15 +312,15 @@ static int score_side(
             int pst_col = owner == 0 ? c : BOARD_W - 1 - c;
             score += kp_material[piece];
             if(piece == 6 && endgame){
-                score += king_endgame_pst[pst_row][pst_col];
+                score += (king_endgame_pst[pst_row][pst_col] * 2) / 3;
             }else{
-                score += pst[piece - 1][pst_row][pst_col];
+                score += soft_square_bonus(piece, pst_row, pst_col);
             }
             if(enemy_kr >= 0){
                 score += king_tropism(piece, r, c, enemy_kr, enemy_kc);
             }
-            if(piece == 1 && is_passed_pawn(enemy_board, owner, r, c)){
-                score += passed_pawn_bonus(owner, r);
+            if(piece == 1 && pawn_is_passed(enemy_board, owner, r, c)){
+                score += pawn_advance_bonus(owner, r);
             }
         }
     }
@@ -355,10 +365,10 @@ int State::evaluate(
             }
         }
 
-        self_score = score_side(
+        self_score = eval_side_kp(
             self_board, oppn_board, this->player, endgame, oppn_kr, oppn_kc
         );
-        oppn_score = score_side(
+        oppn_score = eval_side_kp(
             oppn_board, self_board, 1 - this->player, endgame, self_kr, self_kc
         );
 
@@ -390,14 +400,14 @@ int State::evaluate(
     }
 
     if(use_kp_eval){
-        bonus += rook_on_seventh_bonus(this->board, this->player);
-        bonus += pawn_structure_bonus(this->board, this->player) / 2;
-        bonus += king_pressure_bonus(this->board, this->player, oppn_kr, oppn_kc);
-        bonus -= king_pressure_bonus(this->board, 1 - this->player, self_kr, self_kc) / 2;
+        bonus += rook_rank7_bonus(this->board, this->player);
+        bonus += pawn_formation_bonus(this->board, this->player) / 3;
+        bonus += (king_pressure_bonus(this->board, this->player, oppn_kr, oppn_kc) * 6) / 5;
+        bonus -= king_pressure_bonus(this->board, 1 - this->player, self_kr, self_kc) / 3;
     }
 
     if(history && history->count(this->hash()) >= 2){
-        bonus -= 10;
+        bonus -= 6;
     }
 
     return self_score - oppn_score + bonus;

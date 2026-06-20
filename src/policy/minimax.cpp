@@ -102,7 +102,7 @@ static int sq_index(const Point& p){
     return (int)p.first * BOARD_W + (int)p.second;
 }
 
-static int repetition_adjusted_score(
+static int rep_adjusted_score(
     int score,
     int seen_count,
     int repetition_limit,
@@ -128,13 +128,13 @@ static int repetition_adjusted_score(
     return score - penalty / 4;
 }
 
-static int apply_repetition_policy(
+static int apply_rep_policy(
     int score,
     const State* child,
     const GameHistory& history,
     const MMParams& p
 ){
-    return repetition_adjusted_score(
+    return rep_adjusted_score(
         score,
         history.count(child->hash()),
         p.repetition_limit,
@@ -394,7 +394,7 @@ static int negamax(
             }
         }
 
-        score = apply_repetition_policy(score, next, history, p);
+        score = apply_rep_policy(score, next, history, p);
 
         delete next;
 
@@ -492,8 +492,8 @@ static int quiescence(
         int tr = (int)action.second.first;
         int tc = (int)action.second.second;
         int victim = state->board.board[1 - state->player][tr][tc];
-        static const int delta_val[7] = {0, 100, 500, 320, 330, 900, 20000};
-        if(victim > 0 && victim < 6 && stand_pat + delta_val[victim] + 200 < alpha){
+        static const int piece_delta[7] = {0, 100, 500, 320, 330, 900, 20000};
+        if(victim > 0 && victim < 6 && stand_pat + piece_delta[victim] + 200 < alpha){
             continue;
         }
 
@@ -504,7 +504,7 @@ static int quiescence(
             ? quiescence(next, alpha, beta, history, ply + 1, ctx, p, qdepth - 1)
             : quiescence(next, -beta, -alpha, history, ply + 1, ctx, p, qdepth - 1);
         int score = same ? raw : -raw;
-        score = apply_repetition_policy(score, next, history, p);
+        score = apply_rep_policy(score, next, history, p);
         delete next;
 
         if(ctx.stop){
@@ -615,7 +615,7 @@ SearchResult MiniMax::search(
             }
         }
 
-        score = apply_repetition_policy(score, next, history, p);
+        score = apply_rep_policy(score, next, history, p);
         delete next;
 
         if(ctx.stop){
