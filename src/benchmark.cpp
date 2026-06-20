@@ -3,7 +3,7 @@
 #include <iomanip>
 
 #include "config.hpp"
-#include "state.hpp"
+#include "114062127_state.hpp"
 #include "./policy/registry.hpp"
 #include "./policy/game_history.hpp"
 

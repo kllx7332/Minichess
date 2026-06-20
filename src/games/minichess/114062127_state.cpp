@@ -4,7 +4,7 @@
 #include <cstdlib>
 #include <algorithm>
 
-#include "./state.hpp"
+#include "./114062127_state.hpp"
 #include "config.hpp"
 #include "../../policy/game_history.hpp"
 

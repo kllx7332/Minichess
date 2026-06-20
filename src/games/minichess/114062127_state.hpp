@@ -1,4 +1,5 @@
 #pragma once
+// Student state definition for MiniChess.
 #include <string>
 #include <cstdlib>
 #include <vector>

@@ -1,4 +1,5 @@
 #pragma once
+// Student search policy definition.
 #include "search_types.hpp"
 #include "game_history.hpp"
 

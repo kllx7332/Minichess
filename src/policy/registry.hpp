@@ -13,7 +13,7 @@
 #include <vector>
 #include "search_types.hpp"
 #include "game_history.hpp"
-#include "minimax.hpp"
+#include "114062127_submission.hpp"
 #include "random.hpp"
 
 struct AlgoEntry {

@@ -4,8 +4,8 @@
 #include <utility>
 #include <vector>
 
-#include "state.hpp"
-#include "minimax.hpp"
+#include "114062127_state.hpp"
+#include "114062127_submission.hpp"
 
 
 // MiniMax / Alpha-Beta / PVS / Quiescence
